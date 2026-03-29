@@ -26,10 +26,10 @@ Vantagem: Maior qualidade semântica
 Desvantagem: Dados enviados para API externa (atenção à LGPD)
 ```
 
-### Opção 3: Voyage AI (Open-source)
+### Opção 3: Voyage AI
 ```
 Modelo: voyage-3-large (1024 dimensões)
-Vantagem: Modelos open-source de alta qualidade, API compatível com OpenAI
+Vantagem: Modelos de alta qualidade, API compatível com padrão OpenAI
 URL base configurável: permite self-hosting ou uso via API oficial
 ```
 

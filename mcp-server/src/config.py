@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
 
-    # Voyage AI (modelos open-source de alta qualidade para embeddings)
+    # Voyage AI (modelos de alta qualidade para embeddings, API compatível)
     voyage_api_key: str = ""
     voyage_embedding_model: str = "voyage-3-large"
     voyage_api_url: str = "https://api.voyageai.com"
