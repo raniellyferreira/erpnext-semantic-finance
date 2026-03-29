@@ -19,24 +19,40 @@ class Settings(BaseSettings):
     erpnext_site_name: str = "mysite.localhost"
     erpnext_default_company: str = ""
 
-    # Qdrant
+    # ─── Vector Store ──────────────────────────────────────────────────────────
+    # Opções: qdrant | pinecone
+    vector_store_provider: str = "qdrant"
+
+    # Qdrant (self-hosted ou Qdrant Cloud)
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
 
-    # Embeddings
-    embedding_provider: str = "ollama"  # ollama | openai
+    # Pinecone
+    pinecone_api_key: str = ""
+    pinecone_environment: str = ""          # ex: us-east-1-aws (legado) ou leave empty for serverless
+    pinecone_index_name: str = "erpnext-finance"
+    pinecone_namespace: str = "default"     # namespace para multi-tenancy
+
+    # ─── Embeddings ────────────────────────────────────────────────────────────
+    # Opções: ollama | openai
+    embedding_provider: str = "ollama"
+    embedding_dimension: int = 768          # 768 para nomic-embed-text, 1536 para text-embedding-3-small
+
+    # Ollama (recomendado para dados sensíveis - 100% local)
     ollama_url: str = "http://localhost:11434"
     ollama_embedding_model: str = "nomic-embed-text"
+
+    # OpenAI (melhor qualidade, dados enviados para API externa - atenção à LGPD)
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
 
-    # Focus NF-e
+    # ─── Focus NF-e ────────────────────────────────────────────────────────────
     focus_nfe_token: str = ""
     focus_nfe_environment: str = "homologacao"  # homologacao | producao
     focus_nfe_url_homologacao: str = "https://homologacao.focusnfe.com.br"
     focus_nfe_url_producao: str = "https://api.focusnfe.com.br"
 
-    # MCP Server
+    # ─── MCP Server ────────────────────────────────────────────────────────────
     mcp_server_host: str = "0.0.0.0"
     mcp_server_port: int = 8000
     log_level: str = "INFO"

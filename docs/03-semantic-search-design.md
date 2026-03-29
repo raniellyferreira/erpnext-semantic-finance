@@ -8,9 +8,11 @@ A busca semântica permite consultas em linguagem natural sobre dados financeiro
 - _"Mostre despesas relacionadas a serviços de TI acima de R$10.000"_
 - _"Quais notas fiscais de entrada estão pendentes de conciliação?"_
 
+---
+
 ## Stack de Embeddings
 
-### Opção 1: Ollama (Recomendado - Local/Self-hosted)
+### Opção 1: Ollama (Recomendado — Local/Self-hosted)
 ```
 Modelo: nomic-embed-text (768 dimensões)
 Vantagem: 100% local, dados financeiros não saem da infraestrutura
@@ -20,139 +22,145 @@ Requisito: ~500MB RAM
 ### Opção 2: OpenAI
 ```
 Modelo: text-embedding-3-small (1536 dimensões)
-Vantagem: Maior qualidade
+Vantagem: Maior qualidade semântica
 Desvantagem: Dados enviados para API externa (atenção à LGPD)
 ```
 
-## Configuração via variável de ambiente
+### Configuração via variável de ambiente
 ```bash
 # .env
 EMBEDDING_PROVIDER=ollama          # ou openai
+EMBEDDING_DIMENSION=768            # 768 (Ollama) ou 1536 (OpenAI)
 OLLAMA_URL=http://ollama:11434
-OLLAMA_MODEL=nomic-embed-text
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OPENAI_API_KEY=sk-...              # se usar openai
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 ```
 
-## Banco Vetorial: Qdrant
+---
 
-### Collections a criar
+## Bancos Vetoriais Suportados
+
+O sistema usa **Ports & Adapters (Hexagonal Architecture)**: o código de negócio
+depende apenas da interface abstrata `VectorStorePort`. O adapter concreto é
+injetado via factory baseada na env var `VECTOR_STORE_PROVIDER`.
+
+```
+VectorStorePort (interface abstrata)
+    ├── QdrantAdapter   → VECTOR_STORE_PROVIDER=qdrant
+    └── PineconeAdapter → VECTOR_STORE_PROVIDER=pinecone
+```
+
+### Qdrant (self-hosted ou Qdrant Cloud)
+```bash
+VECTOR_STORE_PROVIDER=qdrant
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=          # vazio para instância local
+```
+
+| Característica | Detalhe |
+|---|---|
+| Tipo | Self-hosted (Docker) ou Cloud |
+| Collections | Criadas automaticamente pelo adapter |
+| Filtros híbridos | ✅ Suportados nativamente |
+| Melhor para | Infraestrutura própria / on-premise / dados sensíveis |
+
+### Pinecone (Serverless ou Pod-based)
+```bash
+VECTOR_STORE_PROVIDER=pinecone
+PINECONE_API_KEY=sua_api_key
+PINECONE_INDEX_NAME=erpnext-finance   # index deve ser criado previamente
+PINECONE_NAMESPACE=default            # útil para multi-tenancy
+PINECONE_ENVIRONMENT=                 # vazio para Serverless (recomendado)
+```
+
+| Característica | Detalhe |
+|---|---|
+| Tipo | Managed cloud (SaaS) |
+| Collections | Simuladas via **namespaces** dentro de um único index |
+| Filtros híbridos | ✅ Metadata filtering nativo |
+| Melhor para | Escala gerenciada, sem ops de infraestrutura |
+| ⚠️ LGPD | Dados enviados para servidores Pinecone — avaliar conformidade |
+
+> **Importante (Pinecone):** O index deve ser criado manualmente no console
+> Pinecone (ou via Terraform/IaC) com `metric=cosine` e `dimension` igual
+> ao `EMBEDDING_DIMENSION` configurado **antes** de subir o serviço.
+
+---
+
+## Arquitetura do Vector Store
+
+```
+mcp-server/src/vector_store/
+├── port.py                    # VectorStorePort (interface abstrata)
+├── factory.py                 # Instancia o adapter correto via env var
+├── __init__.py                # Exports públicos
+└── adapters/
+    ├── qdrant_adapter.py      # Adapter Qdrant
+    └── pinecone_adapter.py    # Adapter Pinecone
+```
+
+### Interface `VectorStorePort`
 
 ```python
-# despesas
-{
-    "name": "despesas",
-    "vector_size": 768,
-    "distance": "Cosine",
-    "payload_schema": {
-        "doctype": "string",       # Payment Entry, Purchase Invoice
-        "name": "string",          # ID do documento no ERPNext
-        "supplier": "string",      # Fornecedor
-        "amount": "float",         # Valor
-        "date": "string",          # Data
-        "cost_center": "string",   # Centro de custo
-        "category": "string",      # Categoria da despesa
-        "description": "string",   # Descrição original
-    }
-}
-
-# notas_fiscais
-{
-    "name": "notas_fiscais",
-    "vector_size": 768,
-    "distance": "Cosine",
-    "payload_schema": {
-        "doctype": "string",
-        "nfe_number": "string",
-        "supplier_cnpj": "string",
-        "items_description": "string",  # texto concatenado dos itens
-        "total_value": "float",
-        "tax_icms": "float",
-        "tax_pis": "float",
-        "tax_cofins": "float",
-        "issue_date": "string",
-    }
-}
-
-# lancamentos_contabeis
-{
-    "name": "lancamentos_contabeis",
-    "vector_size": 768,
-    "distance": "Cosine",
-    "payload_schema": {
-        "account": "string",
-        "debit": "float",
-        "credit": "float",
-        "remarks": "string",
-        "posting_date": "string",
-        "voucher_type": "string",
-    }
-}
+class VectorStorePort(ABC):
+    async def ensure_collection(collection, vector_size) -> None: ...
+    async def upsert(collection, documents: list[VectorDocument]) -> None: ...
+    async def search(collection, query_vector, limit, filters) -> list[SearchResult]: ...
+    async def delete(collection, doc_id) -> None: ...
+    async def count(collection) -> int: ...
 ```
+
+---
+
+## Collections / Namespaces
+
+| Nome | Documentos indexados | Campos de payload principais |
+|---|---|---|
+| `despesas` | Payment Entry | supplier, amount, date, cost_center |
+| `notas_fiscais` | Purchase Invoice, Sales Invoice | supplier_cnpj, total_value, tax_icms, issue_date |
+| `lancamentos_contabeis` | Journal Entry | account, debit, credit, posting_date |
+| `fornecedores` | Supplier | supplier_name, tax_id (CNPJ) |
+
+---
 
 ## Pipeline de Indexação (Frappe Hooks)
 
 ```python
 # semantic_finance/hooks.py
-
 doc_events = {
-    "Payment Entry": {
-        "on_submit": "semantic_finance.embeddings.indexer.index_payment_entry",
-        "on_cancel": "semantic_finance.embeddings.indexer.remove_from_index",
-    },
-    "Purchase Invoice": {
-        "on_submit": "semantic_finance.embeddings.indexer.index_purchase_invoice",
-        "on_cancel": "semantic_finance.embeddings.indexer.remove_from_index",
-    },
-    "Sales Invoice": {
-        "on_submit": "semantic_finance.embeddings.indexer.index_sales_invoice",
-        "on_cancel": "semantic_finance.embeddings.indexer.remove_from_index",
-    },
-    "Journal Entry": {
-        "on_submit": "semantic_finance.embeddings.indexer.index_journal_entry",
-        "on_cancel": "semantic_finance.embeddings.indexer.remove_from_index",
-    },
+    "Payment Entry":    {"on_submit": "...index_payment_entry",   "on_cancel": "...remove_from_index"},
+    "Purchase Invoice": {"on_submit": "...index_purchase_invoice", "on_cancel": "...remove_from_index"},
+    "Sales Invoice":    {"on_submit": "...index_sales_invoice",    "on_cancel": "...remove_from_index"},
+    "Journal Entry":    {"on_submit": "...index_journal_entry",    "on_cancel": "...remove_from_index"},
+    "Supplier":         {"after_insert": "...index_supplier",      "on_update": "...index_supplier"},
 }
 ```
 
-## Texto para Embedding
-
-Cada documento deve gerar um texto rico para embedding:
-
-```python
-def build_payment_entry_text(doc) -> str:
-    return f"""
-    Pagamento para fornecedor {doc.party} no valor de R$ {doc.paid_amount:.2f}
-    em {doc.posting_date}. Referência: {doc.reference_no}.
-    Centro de custo: {doc.cost_center}.
-    Modo de pagamento: {doc.mode_of_payment}.
-    Observações: {doc.remarks or 'sem observações'}.
-    """.strip()
-
-def build_purchase_invoice_text(doc) -> str:
-    items_text = ", ".join([f"{i.item_name} (qty: {i.qty}, valor: R${i.amount:.2f})" for i in doc.items])
-    return f"""
-    Nota fiscal de entrada do fornecedor {doc.supplier} ({doc.supplier_name})
-    no valor total de R$ {doc.grand_total:.2f} em {doc.posting_date}.
-    Itens: {items_text}.
-    CNPJ fornecedor: {doc.tax_id}.
-    Impostos: ICMS R${doc.total_taxes_and_charges:.2f}.
-    """.strip()
-```
+---
 
 ## Busca Híbrida (Vetorial + Filtros)
 
+Ambos os adapters suportam filtros de metadados combinados com busca vetorial:
+
 ```python
-# Exemplo: busca semântica com filtro de data e valor
-results = qdrant_client.search(
-    collection_name="despesas",
+results = await vector_store.search(
+    collection="despesas",
     query_vector=embedding_da_query,
-    query_filter=Filter(
-        must=[
-            FieldCondition(key="date", range=DatetimeRange(gte="2024-01-01")),
-            FieldCondition(key="amount", range=Range(gte=1000.0)),
-        ]
+    limit=10,
+    filters=SearchFilter(
+        date_gte="2024-01-01",
+        date_lte="2024-12-31",
+        amount_gte=1000.0,
+        supplier="Fornecedor XYZ",
     ),
-    limit=10
 )
 ```
+
+### Tradução dos filtros por adapter
+
+| Filtro | Qdrant | Pinecone |
+|---|---|---|
+| `date_gte` | `FieldCondition(range=Range(gte=...))` | `{"date": {"$gte": ...}}` |
+| `amount_lte` | `FieldCondition(range=Range(lte=...))` | `{"amount": {"$lte": ...}}` |
+| `supplier` | `FieldCondition(match=MatchValue(...))` | `{"supplier": {"$eq": ...}}` |
