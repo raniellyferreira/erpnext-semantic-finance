@@ -1,0 +1,142 @@
+# Docker Compose - ERPNext Semantic Finance Stack
+# Referência: https://github.com/frappe/frappe_docker
+
+version: "3.8"
+
+services:
+
+  # ─── ERPNext ───────────────────────────────────────────────
+  backend:
+    image: frappe/erpnext:v15
+    container_name: erpnext-backend
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+    environment:
+      - DB_HOST=mariadb
+      - DB_PORT=3306
+      - REDIS_CACHE=redis-cache:6379
+      - REDIS_QUEUE=redis-queue:6379
+    volumes:
+      - erpnext-sites:/home/frappe/frappe-bench/sites
+      - erpnext-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - erpnext-net
+
+  frontend:
+    image: frappe/erpnext:v15
+    container_name: erpnext-frontend
+    command: nginx-entrypoint.sh
+    depends_on:
+      - backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - erpnext-sites:/home/frappe/frappe-bench/sites
+    networks:
+      - erpnext-net
+
+  # ─── Banco de Dados ────────────────────────────────────────
+  mariadb:
+    image: mariadb:10.6
+    container_name: erpnext-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-secret}
+      MYSQL_DATABASE: erpnext
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erpnext-net
+
+  # ─── Redis ─────────────────────────────────────────────────
+  redis-cache:
+    image: redis:7-alpine
+    container_name: erpnext-redis-cache
+    networks:
+      - erpnext-net
+
+  redis-queue:
+    image: redis:7-alpine
+    container_name: erpnext-redis-queue
+    networks:
+      - erpnext-net
+
+  # ─── Qdrant (Banco Vetorial) ────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: erpnext-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erpnext-net
+
+  # ─── Ollama (Embeddings Local) ──────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: erpnext-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Remova o comentário abaixo se tiver GPU NVIDIA
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    networks:
+      - erpnext-net
+
+  # ─── MCP Server ────────────────────────────────────────────
+  mcp-server:
+    build:
+      context: ../mcp-server
+      dockerfile: Dockerfile
+    container_name: erpnext-mcp-server
+    depends_on:
+      - backend
+      - qdrant
+      - ollama
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      - ERPNEXT_URL=http://backend:8080
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://ollama:11434
+    networks:
+      - erpnext-net
+    restart: unless-stopped
+
+# ─── Volumes ──────────────────────────────────────────────────
+volumes:
+  mariadb-data:
+  erpnext-sites:
+  erpnext-logs:
+  qdrant-data:
+  ollama-data:
+
+# ─── Networks ─────────────────────────────────────────────────
+networks:
+  erpnext-net:
+    driver: bridge
