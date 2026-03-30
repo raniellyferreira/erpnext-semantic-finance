@@ -284,7 +284,7 @@ def _processar_balancete(
             "total_credito": round(total_credito, 2),
             "diferenca": round(total_debito - total_credito, 2),
         },
-        "total_contas": len([ln for ln in linhas if isinstance(ln, dict)]),
+        "total_contas": sum(1 for ln in linhas if isinstance(ln, dict)),
     }
 
 

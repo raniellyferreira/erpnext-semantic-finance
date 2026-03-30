@@ -143,7 +143,7 @@ class ERPNextClient:
         self,
         doctype: str,
         *,
-        filters: dict[str, Any] | None = None,
+        filters: dict[str, Any] | list[list[Any]] | None = None,
         fields: list[str] | None = None,
         limit: int = 20,
     ) -> list[dict[str, Any]]:
@@ -151,7 +151,9 @@ class ERPNextClient:
 
         Args:
             doctype: Tipo do documento (ex: ``Payment Entry``).
-            filters: Filtros no formato ERPNext (ex: ``{"status": "Paid"}``).
+            filters: Filtros no formato ERPNext — dicionário simples
+                (ex: ``{"status": "Paid"}``) ou lista de listas com operadores
+                (ex: ``[["status", "=", "Paid"], ["amount", ">=", 100]]``).
             fields: Lista de campos a retornar (ex: ``["name", "grand_total"]``).
             limit: Número máximo de resultados. Padrão: 20.
 

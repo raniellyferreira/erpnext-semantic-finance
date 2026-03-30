@@ -329,7 +329,19 @@ async def _registrar_despesa(arguments: dict) -> str:
         client = await _get_client()
         paid_to = await _resolver_conta_fornecedor(client, fornecedor)
 
-        payload = {
+        # Obtém a moeda padrão da empresa para evitar hardcode de moeda
+        company_doc = await client.get_doc("Company", settings.erpnext_default_company)
+        moeda_padrao = company_doc.get("default_currency")
+        if not moeda_padrao:
+            moeda_padrao = "BRL"
+            logger.warning(
+                "registrar_despesa_moeda_fallback",
+                empresa=settings.erpnext_default_company,
+                moeda_utilizada=moeda_padrao,
+                aviso="Campo 'default_currency' não configurado na empresa. Usando 'BRL'.",
+            )
+
+        payload: dict = {
             "doctype": "Payment Entry",
             "payment_type": "Pay",
             "posting_date": data,
@@ -337,13 +349,11 @@ async def _registrar_despesa(arguments: dict) -> str:
             "party_type": "Supplier",
             "party": fornecedor,
             "paid_from": conta_debito,
-            "paid_from_account_currency": "BRL",
+            "paid_from_account_currency": moeda_padrao,
             "paid_to": paid_to,
-            "paid_to_account_currency": "BRL",
+            "paid_to_account_currency": moeda_padrao,
             "paid_amount": valor,
             "received_amount": valor,
-            "source_exchange_rate": 1.0,
-            "target_exchange_rate": 1.0,
             "mode_of_payment": modo_pagamento,
             "cost_center": centro_custo,
             "remarks": descricao,
@@ -465,7 +475,8 @@ async def _consultar_fornecedor(arguments: dict) -> str:
                 ensure_ascii=False,
             )
 
-        dados_fornecedor = await client.get_doc("Supplier", supplier_name)
+        dados_completos = await client.get_doc("Supplier", supplier_name)
+        dados_fornecedor = _filtrar_campos_fornecedor(dados_completos)
 
         historico_pagamentos = await client.list_docs(
             "Payment Entry",
@@ -537,6 +548,32 @@ async def _consultar_fornecedor(arguments: dict) -> str:
 
 
 # ─── Auxiliares internos ─────────────────────────────────────────────────────
+
+# Campos permitidos para exposição do Supplier — evita vazar dados internos
+_SUPPLIER_WHITELIST_FIELDS = [
+    "name",
+    "supplier_name",
+    "supplier_type",
+    "supplier_group",
+    "tax_id",
+    "country",
+    "default_currency",
+]
+
+
+def _filtrar_campos_fornecedor(dados: dict) -> dict:
+    """Retorna apenas os campos cadastrais permitidos do fornecedor.
+
+    Evita expor campos internos do DocType Supplier que não são
+    relevantes para o contexto financeiro do LLM.
+
+    Args:
+        dados: Dicionário completo retornado pelo ``get_doc("Supplier", ...)``.
+
+    Returns:
+        Dicionário filtrado com apenas os campos em ``_SUPPLIER_WHITELIST_FIELDS``.
+    """
+    return {k: v for k, v in dados.items() if k in _SUPPLIER_WHITELIST_FIELDS}
 
 
 async def _localizar_fornecedor(client: ERPNextClient, cnpj_ou_nome: str) -> str | None:

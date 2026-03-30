@@ -31,11 +31,13 @@ class _MockERPNextClient:
         self,
         list_docs_results: list | None = None,
         get_doc_result: dict | None = None,
+        get_doc_results_by_doctype: dict[str, dict] | None = None,
         create_doc_result: dict | None = None,
         raise_on: type[Exception] | None = None,
     ) -> None:
         self._list_docs_results = list_docs_results or []
         self._get_doc_result = get_doc_result or {}
+        self._get_doc_results_by_doctype = get_doc_results_by_doctype or {}
         self._create_doc_result = create_doc_result or {}
         self._raise_on = raise_on
         self.list_docs_calls: list[dict] = []
@@ -47,7 +49,6 @@ class _MockERPNextClient:
         if self._raise_on:
             raise self._raise_on("Erro simulado", status_code=500)
         if isinstance(self._list_docs_results, list) and self._list_docs_results:
-            # Retorna a próxima fatia (multi-chamada sequencial)
             return self._list_docs_results
         return self._list_docs_results
 
@@ -55,6 +56,8 @@ class _MockERPNextClient:
         self.get_doc_calls.append({"doctype": doctype, "name": name})
         if self._raise_on:
             raise self._raise_on("Erro simulado", status_code=500)
+        if doctype in self._get_doc_results_by_doctype:
+            return self._get_doc_results_by_doctype[doctype]
         return self._get_doc_result
 
     async def create_doc(self, doctype, data):
@@ -115,8 +118,12 @@ class TestToolNames:
 
     def test_contem_todas_as_tools(self) -> None:
         """TOOL_NAMES deve conter todas as tools financeiras."""
-        for name in ["listar_despesas", "registrar_despesa",
-                     "consultar_fluxo_caixa", "consultar_fornecedor"]:
+        for name in [
+            "listar_despesas",
+            "registrar_despesa",
+            "consultar_fluxo_caixa",
+            "consultar_fornecedor",
+        ]:
             assert name in financial_tools.TOOL_NAMES
 
     def test_tamanho_correto(self) -> None:
@@ -234,7 +241,10 @@ class TestRegistrarDespesa:
     ) -> None:
         """Deve criar Payment Entry com todos os campos obrigatórios."""
         mock_client = _MockERPNextClient(
-            get_doc_result={"default_payable_account": "Credores - TC"},
+            get_doc_results_by_doctype={
+                "Supplier": {"default_payable_account": "Credores - TC"},
+                "Company": {"default_currency": "BRL"},
+            },
             create_doc_result={"name": "PE-NEW-001", "docstatus": 0},
         )
         monkeypatch.setattr(financial_tools, "_client", mock_client)
@@ -265,6 +275,11 @@ class TestRegistrarDespesa:
         assert payload["paid_amount"] == 1500.0
         assert payload["received_amount"] == 1500.0
         assert payload["paid_to"] == "Credores - TC"
+        assert payload["paid_from_account_currency"] == "BRL"
+        assert payload["paid_to_account_currency"] == "BRL"
+        # exchange_rate não deve ser enviado (ERPNext calcula automaticamente)
+        assert "source_exchange_rate" not in payload
+        assert "target_exchange_rate" not in payload
 
     async def test_usa_conta_padrao_da_empresa_quando_fornecedor_sem_conta(
         self, monkeypatch: pytest.MonkeyPatch
@@ -279,7 +294,10 @@ class TestRegistrarDespesa:
                 if doctype == "Supplier":
                     return {"name": name}  # sem default_payable_account
                 if doctype == "Company":
-                    return {"default_payable_account": "Fornecedores - TC"}
+                    return {
+                        "default_payable_account": "Fornecedores - TC",
+                        "default_currency": "BRL",
+                    }
                 return {}
 
             async def list_docs(self, *a, **kw):
@@ -313,7 +331,10 @@ class TestRegistrarDespesa:
     ) -> None:
         """Deve usar 'Transferência Bancária' como modo de pagamento padrão."""
         mock_client = _MockERPNextClient(
-            get_doc_result={"default_payable_account": "Credores - TC"},
+            get_doc_results_by_doctype={
+                "Supplier": {"default_payable_account": "Credores - TC"},
+                "Company": {"default_currency": "BRL"},
+            },
             create_doc_result={"name": "PE-DEFAULT-001", "docstatus": 0},
         )
         monkeypatch.setattr(financial_tools, "_client", mock_client)
@@ -473,7 +494,7 @@ class TestConsultarFornecedor:
     async def test_retorna_dados_do_fornecedor_encontrado(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Deve retornar dados completos do fornecedor quando encontrado por nome."""
+        """Deve retornar dados cadastrais filtrados do fornecedor quando encontrado."""
 
         class _MockFornecedorClient:
             async def list_docs(self, doctype, *, filters=None, fields=None, limit=20):
@@ -493,6 +514,10 @@ class TestConsultarFornecedor:
                     "name": "SUP-001",
                     "supplier_name": "Fornecedor Teste",
                     "tax_id": "12345678000199",
+                    "supplier_type": "Company",
+                    "creation": "2024-01-01 00:00:00",
+                    "owner": "admin@example.com",
+                    "_user_tags": "",
                 }
 
             async def close(self):
@@ -510,6 +535,11 @@ class TestConsultarFornecedor:
         assert result["fornecedor"]["supplier_name"] == "Fornecedor Teste"
         assert result["historico_pagamentos"]["total"] == 1
         assert result["faturas_pendentes"]["total"] == 0
+
+        # Verifica que campos internos não são expostos
+        assert "creation" not in result["fornecedor"]
+        assert "owner" not in result["fornecedor"]
+        assert "_user_tags" not in result["fornecedor"]
 
     async def test_retorna_nao_encontrado_quando_inexistente(
         self, monkeypatch: pytest.MonkeyPatch
