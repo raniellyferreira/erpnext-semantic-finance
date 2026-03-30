@@ -28,7 +28,7 @@ Desvantagem: Dados enviados para API externa (atenção à LGPD)
 
 ### Opção 3: Voyage AI
 ```
-Modelo: voyage-3-large (1024 dimensões)
+Modelo: voyage-3-large (2048 dimensões)
 Vantagem: Modelos de alta qualidade, API compatível com padrão OpenAI
 URL base configurável: permite self-hosting ou uso via API oficial
 ```
@@ -37,7 +37,7 @@ URL base configurável: permite self-hosting ou uso via API oficial
 ```bash
 # .env
 EMBEDDING_PROVIDER=ollama          # ou openai | voyage
-EMBEDDING_DIMENSION=768            # 768 (Ollama) ou 1536 (OpenAI) ou 1024 (Voyage)
+EMBEDDING_DIMENSION=768            # 768 (Ollama) ou 1536 (OpenAI) ou 2048 (Voyage)
 OLLAMA_URL=http://ollama:11434
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OPENAI_API_KEY=sk-...              # se usar openai

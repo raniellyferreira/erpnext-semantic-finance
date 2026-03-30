@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     pinecone_namespace: str = "default"     # namespace para multi-tenancy
 
     # ─── Embeddings ────────────────────────────────────────────────────────────
-    # Opções: ollama | openai
+    # Opções: ollama | openai | voyage
     embedding_provider: str = "ollama"
-    embedding_dimension: int = 768          # 768 para nomic-embed-text, 1536 para text-embedding-3-small
+    embedding_dimension: int = 768          # 768 (nomic-embed-text/Ollama), 1536 (text-embedding-3-small/OpenAI), 2048 (voyage-3-large/Voyage)
 
     # Ollama (recomendado para dados sensíveis - 100% local)
     ollama_url: str = "http://localhost:11434"

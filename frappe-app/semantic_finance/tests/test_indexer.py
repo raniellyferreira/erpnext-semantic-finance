@@ -13,15 +13,17 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 # ─── Configurar env vars ANTES de importar o indexer ──────────────────────────
+# Sobrescreve explicitamente para garantir isolamento independente do ambiente.
 
-os.environ.setdefault("VECTOR_STORE_PROVIDER", "qdrant")
-os.environ.setdefault("EMBEDDING_PROVIDER", "ollama")
-os.environ.setdefault("EMBEDDING_DIMENSION", "768")
-os.environ.setdefault("QDRANT_URL", "http://localhost:6333")
-os.environ.setdefault("OLLAMA_URL", "http://localhost:11434")
+os.environ["VECTOR_STORE_PROVIDER"] = "qdrant"
+os.environ["EMBEDDING_PROVIDER"] = "ollama"
+os.environ["EMBEDDING_DIMENSION"] = "768"
+os.environ["QDRANT_URL"] = "http://localhost:6333"
+os.environ["OLLAMA_URL"] = "http://localhost:11434"
 
 from semantic_finance.embeddings import indexer  # noqa: E402
 from src.vector_store.port import VectorDocument, VectorStorePort  # noqa: E402
@@ -37,9 +39,11 @@ def _reset_indexer_state():
     """Reseta o estado global do módulo entre testes."""
     indexer._vector_store = None
     indexer._collections_ensured = False
+    indexer._executor = None
     yield
     indexer._vector_store = None
     indexer._collections_ensured = False
+    indexer._executor = None
 
 
 @pytest.fixture()
@@ -369,6 +373,31 @@ class TestEnsureCollections:
             indexer._ensure_collections()
 
         assert store.ensure_collection.call_count == 4
+        # Partial failure: collections NOT marked as ensured — allows retry
+        assert indexer._collections_ensured is False
+
+    def test_retries_after_partial_failure(self):
+        store = AsyncMock(spec=VectorStorePort)
+        fail_first_round = True
+
+        async def _fail_on_first_round(collection, vector_size):
+            if fail_first_round and collection == "notas_fiscais":
+                raise ConnectionError("transient error")
+
+        store.ensure_collection = AsyncMock(side_effect=_fail_on_first_round)
+        with patch(
+            "semantic_finance.embeddings.indexer.create_vector_store",
+            return_value=store,
+        ):
+            indexer._ensure_collections()
+            assert indexer._collections_ensured is False
+
+            # Second attempt after transient error is resolved
+            fail_first_round = False
+            store.ensure_collection = AsyncMock()
+            indexer._ensure_collections()
+
+        assert indexer._collections_ensured is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -445,7 +474,7 @@ class TestOllamaEmbedding:
         mock_post.assert_called_once_with(
             "http://ollama:11434/api/embeddings",
             json={"model": "nomic-embed-text", "prompt": "meu texto"},
-            timeout=60.0,
+            timeout=httpx.Timeout(30.0, connect=5.0),
         )
         assert result == FAKE_EMBEDDING
 
@@ -474,7 +503,7 @@ class TestOpenAIEmbedding:
             "https://api.openai.com/v1/embeddings",
             headers={"Authorization": "Bearer sk-test-key"},
             json={"model": "text-embedding-3-small", "input": "meu texto"},
-            timeout=60.0,
+            timeout=httpx.Timeout(30.0, connect=5.0),
         )
         assert result == FAKE_EMBEDDING
 
@@ -504,7 +533,7 @@ class TestVoyageEmbedding:
             "https://api.voyageai.com/v1/embeddings",
             headers={"Authorization": "Bearer pa-test-key"},
             json={"model": "voyage-3-large", "input": ["meu texto"]},
-            timeout=60.0,
+            timeout=httpx.Timeout(30.0, connect=5.0),
         )
         assert result == FAKE_EMBEDDING
 
@@ -532,7 +561,7 @@ class TestVoyageEmbedding:
             "http://localhost:8787/v1/embeddings",
             headers={"Authorization": "Bearer pa-test-key"},
             json={"model": "voyage-3-large", "input": ["meu texto"]},
-            timeout=60.0,
+            timeout=httpx.Timeout(30.0, connect=5.0),
         )
         assert result == FAKE_EMBEDDING
 
@@ -599,3 +628,167 @@ class TestErrorHandling:
             doc = _make_payment_entry()
             # Não deve levantar exceção
             indexer.index_payment_entry(doc, "on_submit")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TESTES DO SYNC PENDING DOCUMENTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSyncPendingDocuments:
+    """Testa o scheduler job sync_pending_documents com frappe mockado."""
+
+    def _make_frappe_mock(
+        self,
+        docs_per_doctype: int = 1,
+        supplier_count: int = 1,
+    ) -> MagicMock:
+        frappe = MagicMock()
+        frappe.get_all.return_value = [
+            SimpleNamespace(name=f"DOC-{i:05d}") for i in range(docs_per_doctype)
+        ]
+        frappe.get_doc.side_effect = lambda doctype, name: SimpleNamespace(
+            name=name,
+            doctype=doctype,
+            payment_type="Pay",
+            party_type="Supplier",
+            party="Fornecedor ABC",
+            paid_amount=100.00,
+            posting_date="2024-01-01",
+            mode_of_payment="TED",
+            cost_center="",
+            reference_no="",
+            remarks="",
+            references=[],
+            supplier_name="Forn",
+            tax_id="",
+            grand_total=100.0,
+            bill_no="",
+            items=[],
+            taxes_and_charges="",
+            voucher_type="Journal Entry",
+            accounts=[],
+            user_remark="",
+            supplier_type="Company",
+            supplier_group="Serviços",
+            country="Brasil",
+        )
+        return frappe
+
+    def test_processes_all_doctypes(self):
+        store = AsyncMock(spec=VectorStorePort)
+        frappe_mock = self._make_frappe_mock()
+
+        with (
+            patch(
+                "semantic_finance.embeddings.indexer.create_vector_store",
+                return_value=store,
+            ),
+            patch(
+                "semantic_finance.embeddings.indexer._generate_embedding",
+                return_value=FAKE_EMBEDDING,
+            ),
+            patch.dict(
+                "sys.modules",
+                {"frappe": frappe_mock},
+            ),
+        ):
+            indexer.sync_pending_documents()
+
+        # get_all called once for each of the 4 transactional doctypes + Supplier
+        assert frappe_mock.get_all.call_count == 5
+        called_doctypes = [call[0][0] for call in frappe_mock.get_all.call_args_list]
+        assert set(called_doctypes) == {
+            "Payment Entry",
+            "Purchase Invoice",
+            "Sales Invoice",
+            "Journal Entry",
+            "Supplier",
+        }
+
+    def test_doctype_failure_does_not_stop_others(self):
+        """Erro ao processar um doctype não interrompe os demais."""
+        store = AsyncMock(spec=VectorStorePort)
+        frappe_mock = self._make_frappe_mock()
+
+        processed: list[str] = []
+        original_get_doc = frappe_mock.get_doc.side_effect
+
+        def _get_doc_with_failure(doctype, name):
+            if doctype == "Payment Entry":
+                raise RuntimeError("simulated error")
+            processed.append(doctype)
+            return original_get_doc(doctype, name)
+
+        frappe_mock.get_doc.side_effect = _get_doc_with_failure
+
+        with (
+            patch(
+                "semantic_finance.embeddings.indexer.create_vector_store",
+                return_value=store,
+            ),
+            patch(
+                "semantic_finance.embeddings.indexer._generate_embedding",
+                return_value=FAKE_EMBEDDING,
+            ),
+            patch.dict("sys.modules", {"frappe": frappe_mock}),
+        ):
+            # Não deve levantar exceção
+            indexer.sync_pending_documents()
+
+        # Os outros doctypes devem ter sido processados
+        assert "Purchase Invoice" in processed
+        assert "Sales Invoice" in processed
+        assert "Journal Entry" in processed
+        assert "Supplier" in processed
+
+    def test_supplier_is_processed_independently(self):
+        """Suppliers são processados mesmo se os doctypes transacionais falharem."""
+        store = AsyncMock(spec=VectorStorePort)
+        frappe_mock = self._make_frappe_mock()
+
+        upserted_collections: list[str] = []
+
+        async def _capture_upsert(collection, documents):
+            upserted_collections.append(collection)
+
+        store.upsert = AsyncMock(side_effect=_capture_upsert)
+
+        # Só retorna docs para Supplier
+        def _selective_get_all(doctype, **kwargs):
+            if doctype == "Supplier":
+                return [SimpleNamespace(name="SUPP-00001")]
+            return []
+
+        frappe_mock.get_all.side_effect = _selective_get_all
+
+        with (
+            patch(
+                "semantic_finance.embeddings.indexer.create_vector_store",
+                return_value=store,
+            ),
+            patch(
+                "semantic_finance.embeddings.indexer._generate_embedding",
+                return_value=FAKE_EMBEDDING,
+            ),
+            patch.dict("sys.modules", {"frappe": frappe_mock}),
+        ):
+            indexer.sync_pending_documents()
+
+        assert "fornecedores" in upserted_collections
+
+    def test_does_not_raise_on_frappe_import_failure(self):
+        """Falha ao importar frappe não deve propagar exceção."""
+        import sys
+
+        original = sys.modules.get("frappe")
+        sys.modules["frappe"] = None  # simula ImportError
+
+        try:
+            # Não deve levantar exceção
+            indexer.sync_pending_documents()
+        finally:
+            if original is None:
+                sys.modules.pop("frappe", None)
+            else:
+                sys.modules["frappe"] = original

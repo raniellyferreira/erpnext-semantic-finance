@@ -12,6 +12,7 @@ concreto (Qdrant, Pinecone, etc.).
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import os
 from typing import Any
@@ -52,6 +53,7 @@ DOCTYPE_COLLECTION_MAP: dict[str, str] = {
 
 _vector_store: VectorStorePort | None = None
 _collections_ensured: bool = False
+_executor: concurrent.futures.ThreadPoolExecutor | None = None
 
 
 # ─── Funções auxiliares ────────────────────────────────────────────────────────
@@ -67,36 +69,44 @@ def _get_vector_store() -> VectorStorePort:
 
 def _run_async(coro: Any) -> Any:
     """Executa coroutine async a partir de contexto síncrono do Frappe."""
+    global _executor  # noqa: PLW0603
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
 
-    # Se já existe loop rodando, executa em thread separada
-    import concurrent.futures
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result(timeout=30)
+    # Se já existe loop rodando, reutiliza executor cacheado para evitar
+    # overhead de criar/destruir ThreadPoolExecutor a cada chamada.
+    if _executor is None:
+        _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    return _executor.submit(asyncio.run, coro).result(timeout=30)
 
 
 def _ensure_collections() -> None:
-    """Garante que todas as collections existem no vector store."""
+    """Garante que todas as collections existem no vector store.
+
+    Só marca como concluído quando TODAS as collections forem garantidas
+    com sucesso, permitindo retry automático em caso de falha transitória.
+    """
     global _collections_ensured  # noqa: PLW0603
     if _collections_ensured:
         return
 
     store = _get_vector_store()
     dimension = int(os.environ.get("EMBEDDING_DIMENSION", "768"))
+    all_ensured = True
 
     for collection in COLLECTIONS:
         try:
             _run_async(store.ensure_collection(collection, dimension))
         except Exception:
+            all_ensured = False
             logger.exception(
                 "Falha ao garantir collection '%s' no vector store", collection
             )
 
-    _collections_ensured = True
+    if all_ensured:
+        _collections_ensured = True
 
 
 def _generate_embedding(text: str) -> list[float]:
@@ -124,7 +134,7 @@ def _generate_ollama_embedding(text: str) -> list[float]:
     response = httpx.post(
         f"{url}/api/embeddings",
         json={"model": model, "prompt": text},
-        timeout=60.0,
+        timeout=httpx.Timeout(30.0, connect=5.0),
     )
     response.raise_for_status()
     return response.json()["embedding"]
@@ -139,14 +149,14 @@ def _generate_openai_embedding(text: str) -> list[float]:
         "https://api.openai.com/v1/embeddings",
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model, "input": text},
-        timeout=60.0,
+        timeout=httpx.Timeout(30.0, connect=5.0),
     )
     response.raise_for_status()
     return response.json()["data"][0]["embedding"]
 
 
 def _generate_voyage_embedding(text: str) -> list[float]:
-    """Gera embedding usando a API Voyage AI (open-source friendly)."""
+    """Gera embedding usando a API Voyage AI."""
     api_key = os.environ.get("VOYAGE_API_KEY", "")
     model = os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-3-large")
     base_url = os.environ.get("VOYAGE_API_URL", "https://api.voyageai.com")
@@ -155,7 +165,7 @@ def _generate_voyage_embedding(text: str) -> list[float]:
         f"{base_url}/v1/embeddings",
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model, "input": [text]},
-        timeout=60.0,
+        timeout=httpx.Timeout(30.0, connect=5.0),
     )
     response.raise_for_status()
     return response.json()["data"][0]["embedding"]
