@@ -20,11 +20,11 @@ class InvoiceItem(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    item_code: str | None = Field(default=None, alias="item_code")
-    item_name: str | None = Field(default=None, alias="item_name")
-    qty: float | None = Field(default=None, alias="qty")
-    rate: float | None = Field(default=None, alias="rate")
-    amount: float | None = Field(default=None, alias="amount")
+    item_code: str | None = None
+    item_name: str | None = None
+    qty: float | None = None
+    rate: float | None = None
+    amount: float | None = None
 
 
 class JournalEntryAccount(BaseModel):
@@ -32,7 +32,7 @@ class JournalEntryAccount(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    account: str | None = Field(default=None, alias="account")
+    account: str | None = None
     debit: float | None = Field(default=None, alias="debit_in_account_currency")
     credit: float | None = Field(default=None, alias="credit_in_account_currency")
 

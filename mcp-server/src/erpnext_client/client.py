@@ -7,6 +7,7 @@ e mapeamento de erros HTTP para exceções semânticas.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -341,8 +342,6 @@ class ERPNextClient:
 
 def _serialize_value(value: Any) -> str:
     """Serializa listas e dicts para o formato JSON esperado pela API ERPNext."""
-    import json
-
     return json.dumps(value)
 
 
