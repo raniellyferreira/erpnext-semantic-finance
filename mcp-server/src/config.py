@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     pinecone_namespace: str = "default"     # namespace para multi-tenancy
 
     # ─── Embeddings ────────────────────────────────────────────────────────────
-    # Opções: ollama | openai
+    # Opções: ollama | openai | voyage
     embedding_provider: str = "ollama"
-    embedding_dimension: int = 768          # 768 para nomic-embed-text, 1536 para text-embedding-3-small
+    embedding_dimension: int = 768          # 768 (nomic-embed-text/Ollama), 1536 (text-embedding-3-small/OpenAI), 2048 (voyage-3-large/Voyage)
 
     # Ollama (recomendado para dados sensíveis - 100% local)
     ollama_url: str = "http://localhost:11434"
@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # OpenAI (melhor qualidade, dados enviados para API externa - atenção à LGPD)
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
+
+    # Voyage AI (modelos de alta qualidade para embeddings, API compatível)
+    voyage_api_key: str = ""
+    voyage_embedding_model: str = "voyage-3-large"
+    voyage_api_url: str = "https://api.voyageai.com"
 
     # ─── Focus NF-e ────────────────────────────────────────────────────────────
     focus_nfe_token: str = ""
