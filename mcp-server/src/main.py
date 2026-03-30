@@ -60,6 +60,8 @@ async def main() -> None:
             )
     finally:
         await search_tools.close()
+        await financial_tools.close()
+        await report_tools.close()
 
 
 if __name__ == "__main__":

@@ -233,6 +233,40 @@ class ERPNextClient:
         )
         return response.get("data", response)
 
+    @retry(
+        retry=retry_if_exception_type((ERPNextServerError, ERPNextConnectionError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
+    async def call_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Invoca um método server-side do Frappe/ERPNext via POST.
+
+        Utilizado para endpoints que não seguem o padrão REST de recursos,
+        como relatórios gerenciais, utilitários e whitelisted methods.
+
+        Endpoint alvo: ``POST /api/method/{method}``
+
+        Args:
+            method: Caminho do método Frappe (ex:
+                ``frappe.desk.query_report.run``).
+            params: Parâmetros enviados como corpo JSON da requisição.
+
+        Returns:
+            Dicionário com a chave ``message`` contendo o resultado do método,
+            ou o corpo completo da resposta em caso de formatos alternativos.
+
+        Raises:
+            ERPNextValidationError: Parâmetros inválidos ou método com erro (400/422).
+            ERPNextAuthError: Sem permissão para executar o método (401/403).
+            ERPNextNotFoundError: Método não encontrado ou não registrado (404).
+            ERPNextServerError: Erro interno do servidor (5xx).
+            ERPNextConnectionError: Falha de conexão ou timeout.
+        """
+        logger.debug("erpnext.call_method", method=method)
+        response = await self._request("POST", f"/api/method/{method}", json_data=params)
+        return response.get("message", response)
+
     # ─── Internals ────────────────────────────────────────────────────────────
 
     async def _request(
