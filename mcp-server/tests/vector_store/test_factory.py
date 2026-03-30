@@ -42,7 +42,6 @@ class TestCreateVectorStore:
         monkeypatch.setattr(settings, "pinecone_api_key", "test-pinecone-key")
         monkeypatch.setattr(settings, "pinecone_index_name", "erpnext-finance")
         monkeypatch.setattr(settings, "pinecone_namespace", "default")
-        monkeypatch.setattr(settings, "pinecone_environment", "")
 
         store = create_vector_store()
 
@@ -98,19 +97,20 @@ class TestCreateVectorStore:
         call_kwargs = mock_cls.call_args.kwargs
         assert call_kwargs["api_key"] == "my-qdrant-key"
 
-    def test_pinecone_recebe_environment_nulo_quando_vazio(
+    def test_pinecone_adapter_usa_apenas_api_key_e_index(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """PineconeAdapter deve receber environment=None quando configuração está vazia."""
+        """PineconeAdapter deve ser instanciado apenas com api_key, index_name e namespace."""
         from src.vector_store.adapters.pinecone_adapter import PineconeAdapter
 
         monkeypatch.setattr(settings, "vector_store_provider", "pinecone")
         monkeypatch.setattr(settings, "pinecone_api_key", "key")
         monkeypatch.setattr(settings, "pinecone_index_name", "idx")
         monkeypatch.setattr(settings, "pinecone_namespace", "ns")
-        monkeypatch.setattr(settings, "pinecone_environment", "")
 
         store = create_vector_store()
 
         assert isinstance(store, PineconeAdapter)
-        assert store._environment is None
+        assert store._api_key == "key"
+        assert store._index_name == "idx"
+        assert store._base_namespace == "ns"

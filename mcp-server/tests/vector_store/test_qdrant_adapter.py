@@ -11,7 +11,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.vector_store.adapters.qdrant_adapter import QdrantAdapter, _build_qdrant_filter, _is_uuid
+from src.vector_store.adapters.qdrant_adapter import (
+    QdrantAdapter,
+    _build_qdrant_filter,
+    _is_uuid,
+)
 from src.vector_store.port import SearchFilter, VectorDocument
 
 _QDRANT_CLIENT_PATH = "src.vector_store.adapters.qdrant_adapter.AsyncQdrantClient"

@@ -14,6 +14,8 @@ Nota sobre filtros no Pinecone:
   Os filtros são traduzidos para o formato de metadata filter do Pinecone.
 """
 
+from typing import Any
+
 from pinecone import Pinecone
 
 from ..port import SearchFilter, SearchResult, VectorDocument, VectorStorePort
@@ -27,19 +29,17 @@ class PineconeAdapter(VectorStorePort):
         api_key: str,
         index_name: str,
         namespace: str = "default",
-        environment: str | None = None,
     ) -> None:
         self._api_key = api_key
         self._index_name = index_name
         self._base_namespace = namespace
-        self._environment = environment
-        self._index = None  # lazy init
+        self._index: Any = None  # lazy init
 
     def _get_namespace(self, collection: str) -> str:
         """Gera namespace único combinando base namespace + collection."""
         return f"{self._base_namespace}_{collection}"
 
-    async def _get_index(self) -> object:
+    async def _get_index(self) -> Any:
         """Lazy initialization do Pinecone index."""
         if self._index is None:
             pc = Pinecone(api_key=self._api_key)
