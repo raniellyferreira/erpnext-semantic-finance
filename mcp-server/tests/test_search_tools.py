@@ -66,7 +66,7 @@ class TestGetTools:
         assert len(tools) == 1
         tool = tools[0]
         assert tool.name == "busca_semantica"
-        assert "semântica" in tool.description.lower() or "semantica" in tool.description.lower()
+        assert "busca semântica" in tool.description.lower()
 
     def test_input_schema_tem_query_obrigatoria(self) -> None:
         """O inputSchema deve exigir o campo 'query'."""
