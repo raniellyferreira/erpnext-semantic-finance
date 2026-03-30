@@ -93,9 +93,19 @@ class EmbeddingService:
     Lê a configuração do provider via ``settings.embedding_provider``
     e delega a geração do embedding para a estratégia correspondente.
 
-    Uso:
+    Pode ser usado como async context manager para gerenciamento
+    automático do ciclo de vida do cliente HTTP::
+
+        async with EmbeddingService() as service:
+            vector = await service.embed("texto de exemplo")
+
+    Ou manualmente, chamando ``close()`` ao final::
+
         service = EmbeddingService()
-        vector = await service.embed("texto de exemplo")
+        try:
+            vector = await service.embed("texto de exemplo")
+        finally:
+            await service.close()
     """
 
     def __init__(self) -> None:
@@ -146,3 +156,16 @@ class EmbeddingService:
         )
 
         return embedding
+
+    async def close(self) -> None:
+        """Fecha o cliente HTTP, liberando recursos de rede."""
+        await self._client.aclose()
+        logger.debug("embedding_service_fechado", provider=self._provider)
+
+    async def __aenter__(self) -> EmbeddingService:
+        """Suporte a ``async with``."""
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        """Fecha o cliente HTTP ao sair do context manager."""
+        await self.close()

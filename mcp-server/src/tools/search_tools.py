@@ -18,13 +18,34 @@ import structlog
 
 from ..vector_store.embeddings import EmbeddingService
 from ..vector_store.factory import create_vector_store
-from ..vector_store.port import SearchFilter
+from ..vector_store.port import SearchFilter, VectorStorePort
 
 logger = structlog.get_logger(__name__)
 
 TOOL_NAMES: list[str] = ["busca_semantica"]
 
 _DEFAULT_COLLECTIONS = ["despesas", "notas_fiscais", "lancamentos_contabeis"]
+
+# Singletons de módulo — evita recriar conexões HTTP e clientes a cada chamada.
+# Inicializados de forma lazy na primeira execução.
+_embedding_service: EmbeddingService | None = None
+_vector_store: VectorStorePort | None = None
+
+
+def _get_embedding_service() -> EmbeddingService:
+    """Retorna a instância singleton do EmbeddingService (lazy init)."""
+    global _embedding_service  # noqa: PLW0603
+    if _embedding_service is None:
+        _embedding_service = EmbeddingService()
+    return _embedding_service
+
+
+def _get_vector_store() -> VectorStorePort:
+    """Retorna a instância singleton do VectorStore (lazy init)."""
+    global _vector_store  # noqa: PLW0603
+    if _vector_store is None:
+        _vector_store = create_vector_store()
+    return _vector_store
 
 
 def get_tools() -> list[types.Tool]:
@@ -130,7 +151,7 @@ async def _busca_semantica(arguments: dict) -> str:
     )
 
     # Gera embedding da query
-    embedding_service = EmbeddingService()
+    embedding_service = _get_embedding_service()
     query_vector = await embedding_service.embed(query)
 
     # Monta filtros híbridos (vetorial + metadados)
@@ -142,7 +163,7 @@ async def _busca_semantica(arguments: dict) -> str:
     )
 
     # Busca em cada coleção via porta abstrata
-    vector_store = create_vector_store()
+    vector_store = _get_vector_store()
     resultados: list[dict] = []
 
     for colecao in colecoes:
