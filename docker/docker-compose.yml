@@ -1,11 +1,17 @@
 # Docker Compose - ERPNext Semantic Finance Stack
 # Referência: https://github.com/frappe/frappe_docker
-
-version: "3.8"
+#
+# Uso:
+#   Provider Qdrant (self-hosted):
+#     docker compose --profile qdrant up -d
+#
+#   Provider Pinecone (cloud):
+#     docker compose up -d
+#
 
 services:
 
-  # ─── ERPNext ───────────────────────────────────────────────
+  # ─── ERPNext Backend ─────────────────────────────────────────
   backend:
     image: frappe/erpnext:v15
     container_name: erpnext-backend
@@ -13,15 +19,24 @@ services:
       mariadb:
         condition: service_healthy
       redis-cache:
-        condition: service_started
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
     environment:
       - DB_HOST=mariadb
       - DB_PORT=3306
       - REDIS_CACHE=redis-cache:6379
       - REDIS_QUEUE=redis-queue:6379
+      - SITE_NAME=${ERPNEXT_SITE_NAME:-mysite.localhost}
     volumes:
       - erpnext-sites:/home/frappe/frappe-bench/sites
       - erpnext-logs:/home/frappe/frappe-bench/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSL http://localhost:8000/api/method/ping || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     networks:
       - erpnext-net
 
@@ -30,11 +45,18 @@ services:
     container_name: erpnext-frontend
     command: nginx-entrypoint.sh
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8080:8080"
     volumes:
       - erpnext-sites:/home/frappe/frappe-bench/sites
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSL http://localhost:8080/api/method/ping || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - erpnext-net
 
@@ -48,10 +70,11 @@ services:
     volumes:
       - mariadb-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--password=${MYSQL_ROOT_PASSWORD:-secret}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
     networks:
       - erpnext-net
 
@@ -59,19 +82,31 @@ services:
   redis-cache:
     image: redis:7-alpine
     container_name: erpnext-redis-cache
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - erpnext-net
 
   redis-queue:
     image: redis:7-alpine
     container_name: erpnext-redis-queue
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - erpnext-net
 
-  # ─── Qdrant (Banco Vetorial) ────────────────────────────────
+  # ─── Qdrant (Banco Vetorial — só sobe com --profile qdrant) ─
   qdrant:
     image: qdrant/qdrant:latest
     container_name: erpnext-qdrant
+    profiles:
+      - qdrant
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -80,10 +115,11 @@ services:
     environment:
       QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "curl -fsSL http://localhost:6333/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     networks:
       - erpnext-net
 
@@ -95,6 +131,18 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+        reservations:
+          memory: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSL http://localhost:11434/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     # Remova o comentário abaixo se tiver GPU NVIDIA
     # deploy:
     #   resources:
@@ -113,9 +161,10 @@ services:
       dockerfile: Dockerfile
     container_name: erpnext-mcp-server
     depends_on:
-      - backend
-      - qdrant
-      - ollama
+      backend:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
     ports:
       - "8000:8000"
     env_file:
@@ -124,6 +173,13 @@ services:
       - ERPNEXT_URL=http://backend:8080
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://ollama:11434
+      - VECTOR_STORE_PROVIDER=${VECTOR_STORE_PROVIDER:-qdrant}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSL http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
     networks:
       - erpnext-net
     restart: unless-stopped
