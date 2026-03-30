@@ -79,7 +79,7 @@ def _run_async(coro: Any) -> Any:
     # overhead de criar/destruir ThreadPoolExecutor a cada chamada.
     if _executor is None:
         _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    return _executor.submit(asyncio.run, coro).result(timeout=30)
+    return _executor.submit(asyncio.run, coro).result(timeout=180)
 
 
 def _ensure_collections() -> None:
@@ -134,7 +134,7 @@ def _generate_ollama_embedding(text: str) -> list[float]:
     response = httpx.post(
         f"{url}/api/embeddings",
         json={"model": model, "prompt": text},
-        timeout=httpx.Timeout(30.0, connect=5.0),
+        timeout=httpx.Timeout(180.0, connect=5.0),
     )
     response.raise_for_status()
     return response.json()["embedding"]
@@ -149,7 +149,7 @@ def _generate_openai_embedding(text: str) -> list[float]:
         "https://api.openai.com/v1/embeddings",
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model, "input": text},
-        timeout=httpx.Timeout(30.0, connect=5.0),
+        timeout=httpx.Timeout(180.0, connect=5.0),
     )
     response.raise_for_status()
     return response.json()["data"][0]["embedding"]
@@ -165,7 +165,7 @@ def _generate_voyage_embedding(text: str) -> list[float]:
         f"{base_url}/v1/embeddings",
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model, "input": [text]},
-        timeout=httpx.Timeout(30.0, connect=5.0),
+        timeout=httpx.Timeout(180.0, connect=5.0),
     )
     response.raise_for_status()
     return response.json()["data"][0]["embedding"]

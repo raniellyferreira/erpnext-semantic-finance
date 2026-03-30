@@ -474,7 +474,7 @@ class TestOllamaEmbedding:
         mock_post.assert_called_once_with(
             "http://ollama:11434/api/embeddings",
             json={"model": "nomic-embed-text", "prompt": "meu texto"},
-            timeout=httpx.Timeout(30.0, connect=5.0),
+            timeout=httpx.Timeout(180.0, connect=5.0),
         )
         assert result == FAKE_EMBEDDING
 
@@ -503,7 +503,7 @@ class TestOpenAIEmbedding:
             "https://api.openai.com/v1/embeddings",
             headers={"Authorization": "Bearer sk-test-key"},
             json={"model": "text-embedding-3-small", "input": "meu texto"},
-            timeout=httpx.Timeout(30.0, connect=5.0),
+            timeout=httpx.Timeout(180.0, connect=5.0),
         )
         assert result == FAKE_EMBEDDING
 
@@ -533,7 +533,7 @@ class TestVoyageEmbedding:
             "https://api.voyageai.com/v1/embeddings",
             headers={"Authorization": "Bearer pa-test-key"},
             json={"model": "voyage-3-large", "input": ["meu texto"]},
-            timeout=httpx.Timeout(30.0, connect=5.0),
+            timeout=httpx.Timeout(180.0, connect=5.0),
         )
         assert result == FAKE_EMBEDDING
 
@@ -561,7 +561,7 @@ class TestVoyageEmbedding:
             "http://localhost:8787/v1/embeddings",
             headers={"Authorization": "Bearer pa-test-key"},
             json={"model": "voyage-3-large", "input": ["meu texto"]},
-            timeout=httpx.Timeout(30.0, connect=5.0),
+            timeout=httpx.Timeout(180.0, connect=5.0),
         )
         assert result == FAKE_EMBEDDING
 
