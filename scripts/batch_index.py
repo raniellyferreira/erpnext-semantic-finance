@@ -25,12 +25,13 @@ if _MCP_SERVER_DIR not in sys.path:
     sys.path.insert(0, _MCP_SERVER_DIR)
 
 import structlog  # noqa: E402
+from tenacity import retry, stop_after_attempt, wait_exponential  # noqa: E402
+
 from src.config import settings  # noqa: E402
 from src.erpnext_client.client import ERPNextClient  # noqa: E402
 from src.vector_store.embeddings import EmbeddingService  # noqa: E402
 from src.vector_store.factory import create_vector_store  # noqa: E402
-from src.vector_store.port import VectorDocument  # noqa: E402
-from tenacity import retry, stop_after_attempt, wait_exponential  # noqa: E402
+from src.vector_store.port import VectorDocument, VectorStorePort  # noqa: E402
 
 logger = structlog.get_logger(__name__)
 
@@ -84,11 +85,49 @@ def _doc_to_text(doctype: str, doc: dict) -> str:
 
 
 def _doc_to_payload(doctype: str, doc: dict) -> dict:
-    """Extrai metadados relevantes para armazenamento no vector store."""
+    """Extrai metadados relevantes para armazenamento no vector store.
+
+    Além de copiar todos os campos não vazios do documento original,
+    normaliza as chaves ``date``, ``amount``, ``supplier`` e ``cost_center``
+    para que os filtros híbridos (SearchFilter) funcionem de forma consistente
+    entre diferentes fontes de indexação (QdrantAdapter / PineconeAdapter).
+    """
     payload: dict = {"doctype": doctype}
     for key, value in doc.items():
         if value is not None and value != "":
             payload[key] = value
+
+    # ─── Normalização de campos para filtros híbridos ────────────────────────
+
+    # Normaliza data — chave esperada pelos adapters: "date"
+    posting_date = doc.get("posting_date")
+    if posting_date:
+        payload.setdefault("date", posting_date)
+
+    # Normaliza valor (amount) por DocType — chave esperada pelos adapters: "amount"
+    amount_value: float | str | None = None
+    if doctype == "Payment Entry":
+        amount_value = doc.get("paid_amount")
+    elif doctype in ("Purchase Invoice", "Sales Invoice"):
+        amount_value = doc.get("grand_total") or doc.get("net_total")
+    elif doctype == "Journal Entry":
+        amount_value = doc.get("total_debit") or doc.get("total_credit")
+    elif doctype == "GL Entry":
+        amount_value = doc.get("debit") or doc.get("credit")
+
+    if amount_value is not None and amount_value != "":
+        payload.setdefault("amount", amount_value)
+
+    # Normaliza contraparte da transação — chave esperada pelos adapters: "supplier"
+    supplier_like = doc.get("supplier") or doc.get("customer") or doc.get("party")
+    if supplier_like:
+        payload.setdefault("supplier", supplier_like)
+
+    # Garante cost_center como chave normalizada
+    cost_center = doc.get("cost_center")
+    if cost_center:
+        payload.setdefault("cost_center", cost_center)
+
     return payload
 
 
@@ -109,9 +148,17 @@ async def index_doctype(
     doctype: str,
     client: ERPNextClient,
     embedding_service: EmbeddingService,
+    vector_store: VectorStorePort,
     batch_size: int = 100,
 ) -> tuple[int, int]:
     """Indexa todos os documentos de um DocType no vector store.
+
+    Args:
+        doctype: Tipo do documento ERPNext (ex: ``Payment Entry``).
+        client: Instância do ERPNextClient para buscar documentos.
+        embedding_service: Serviço de geração de embeddings.
+        vector_store: Adapter de vector store já instanciado.
+        batch_size: Tamanho do lote para paginação.
 
     Returns:
         Tupla (total_indexado, total_erros).
@@ -121,7 +168,6 @@ async def index_doctype(
         logger.warning("doctype_sem_colecao", doctype=doctype)
         return 0, 0
 
-    vector_store = create_vector_store()
     await vector_store.ensure_collection(
         collection=collection,
         vector_size=settings.embedding_dimension,
@@ -230,6 +276,7 @@ async def run(args: argparse.Namespace) -> None:
 
     client = ERPNextClient()
     embedding_service = EmbeddingService()
+    vector_store = create_vector_store()
 
     report: dict[str, dict] = {}
 
@@ -240,6 +287,7 @@ async def run(args: argparse.Namespace) -> None:
                 doctype=doctype,
                 client=client,
                 embedding_service=embedding_service,
+                vector_store=vector_store,
                 batch_size=args.batch_size,
             )
             report[doctype] = {"indexados": indexed, "erros": errors}

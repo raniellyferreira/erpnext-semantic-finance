@@ -1,7 +1,7 @@
 """Servidor HTTP leve para health check do container Docker.
 
 Expõe um endpoint GET /health que retorna status 200 quando o serviço
-está ativo. Roda em uma task asyncio separada do MCP Server principal.
+está ativo. Roda em uma thread separada do MCP Server principal.
 """
 
 from __future__ import annotations
@@ -49,13 +49,14 @@ def start_health_server() -> HTTPServer | None:
     Returns:
         Instância do HTTPServer (para shutdown posterior) ou None em caso de erro.
     """
+    host = settings.mcp_server_host
     port = settings.mcp_server_port
 
     try:
-        httpd = HTTPServer(("0.0.0.0", port), _HealthHandler)  # noqa: S104
+        httpd = HTTPServer((host, port), _HealthHandler)  # noqa: S104
         thread = Thread(target=httpd.serve_forever, daemon=True)
         thread.start()
-        logger.info("health_server_iniciado", port=port, endpoint="/health")
+        logger.info("health_server_iniciado", host=host, port=port, endpoint="/health")
         return httpd
     except OSError:
         logger.warning(

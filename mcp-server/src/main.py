@@ -65,6 +65,7 @@ async def main() -> None:
     finally:
         if health_server:
             health_server.shutdown()
+            health_server.server_close()
         await search_tools.close()
         await financial_tools.close()
         await report_tools.close()

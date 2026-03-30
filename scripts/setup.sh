@@ -143,16 +143,30 @@ wait_for_erpnext() {
 
 # ─── Criar site ERPNext ───────────────────────────────────────────────────────
 create_erpnext_site() {
-    local site_name db_password
+    local site_name db_password admin_password
 
     site_name=$(read_env_var "ERPNEXT_SITE_NAME" "mysite.localhost")
     db_password=$(read_env_var "MYSQL_ROOT_PASSWORD" "secret")
+    admin_password=$(read_env_var "ERPNEXT_ADMIN_PASSWORD" "")
+
+    if [ -z "$admin_password" ]; then
+        if [ -t 0 ]; then
+            warn "ERPNEXT_ADMIN_PASSWORD não definida. Informe uma senha de administrador para o site ERPNext."
+            read -r -s -p "Senha do administrador: " admin_password
+            echo
+            if [ -z "$admin_password" ]; then
+                die "Senha do administrador não pode ser vazia."
+            fi
+        else
+            die "ERPNEXT_ADMIN_PASSWORD não definida e entrada não-interativa. Defina ERPNEXT_ADMIN_PASSWORD no .env antes de continuar."
+        fi
+    fi
 
     info "Criando site ERPNext: $site_name"
 
     docker compose -f "$COMPOSE_DIR/docker-compose.yml" --env-file "$ENV_FILE" exec -T backend bench new-site "$site_name" \
         --mariadb-root-password "$db_password" \
-        --admin-password admin \
+        --admin-password "$admin_password" \
         --install-app erpnext \
         --no-mariadb-socket 2>/dev/null || {
         warn "Site pode já existir. Continuando..."
