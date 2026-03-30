@@ -7,6 +7,7 @@ import mcp.types as types
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
 
+from .health import start_health_server
 from .tools import financial_tools, fiscal_tools, report_tools, search_tools
 
 # Inicializa o servidor MCP
@@ -44,6 +45,9 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
 async def main() -> None:
     """Inicializa e executa o MCP Server via stdio."""
+    # Inicia health check HTTP para Docker (thread separada)
+    health_server = start_health_server()
+
     try:
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
             await server.run(
@@ -59,6 +63,9 @@ async def main() -> None:
                 ),
             )
     finally:
+        if health_server:
+            health_server.shutdown()
+            health_server.server_close()
         await search_tools.close()
         await financial_tools.close()
         await report_tools.close()
