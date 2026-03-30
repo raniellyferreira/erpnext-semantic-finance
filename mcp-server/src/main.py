@@ -1,13 +1,13 @@
 """Entry point do MCP Server - ERPNext Semantic Finance."""
 
 import asyncio
+
 import mcp.server.stdio
+import mcp.types as types
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
-import mcp.types as types
 
-from .config import settings
-from .tools import search_tools, financial_tools, fiscal_tools, report_tools
+from .tools import financial_tools, fiscal_tools, report_tools, search_tools
 
 # Inicializa o servidor MCP
 server = Server("erpnext-semantic-finance")

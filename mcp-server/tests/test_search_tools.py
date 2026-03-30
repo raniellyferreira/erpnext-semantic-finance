@@ -44,13 +44,13 @@ class _MockVectorStore:
 class _MockEmbeddingService:
     """Mock do EmbeddingService que retorna vetores determinísticos."""
 
-    def __init__(self, dimension: int = 768) -> None:
-        self._dimension = dimension
+    def __init__(self, embedding_dimension: int = 768) -> None:
+        self._embedding_dimension = embedding_dimension
         self.embed_calls: list[str] = []
 
     async def embed(self, text: str) -> list[float]:
         self.embed_calls.append(text)
-        return [0.1] * self._dimension
+        return [0.1] * self._embedding_dimension
 
 
 # ─── get_tools() ─────────────────────────────────────────────────────────────
