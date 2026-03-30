@@ -14,7 +14,11 @@ Nota sobre filtros no Pinecone:
   Os filtros são traduzidos para o formato de metadata filter do Pinecone.
 """
 
-from ..port import VectorStorePort, VectorDocument, SearchResult, SearchFilter
+from typing import Any
+
+from pinecone import Pinecone
+
+from ..port import SearchFilter, SearchResult, VectorDocument, VectorStorePort
 
 
 class PineconeAdapter(VectorStorePort):
@@ -25,22 +29,19 @@ class PineconeAdapter(VectorStorePort):
         api_key: str,
         index_name: str,
         namespace: str = "default",
-        environment: str | None = None,
     ) -> None:
         self._api_key = api_key
         self._index_name = index_name
         self._base_namespace = namespace
-        self._environment = environment
-        self._index = None  # lazy init
+        self._index: Any = None  # lazy init
 
     def _get_namespace(self, collection: str) -> str:
         """Gera namespace único combinando base namespace + collection."""
         return f"{self._base_namespace}_{collection}"
 
-    async def _get_index(self) -> any:
+    async def _get_index(self) -> Any:
         """Lazy initialization do Pinecone index."""
         if self._index is None:
-            from pinecone import Pinecone
             pc = Pinecone(api_key=self._api_key)
             self._index = pc.Index(self._index_name)
         return self._index
@@ -55,7 +56,6 @@ class PineconeAdapter(VectorStorePort):
         Raises:
             RuntimeError: Se o index não existir ou tiver dimensão incorreta.
         """
-        from pinecone import Pinecone
         pc = Pinecone(api_key=self._api_key)
         indexes = [i.name for i in pc.list_indexes()]
         if self._index_name not in indexes:
@@ -81,7 +81,7 @@ class PineconeAdapter(VectorStorePort):
         ]
         # Upsert em batches de 100 (limite recomendado pelo Pinecone)
         for i in range(0, len(vectors), 100):
-            batch = vectors[i: i + 100]
+            batch = vectors[i : i + 100]
             index.upsert(vectors=batch, namespace=namespace)
 
     async def search(
@@ -106,15 +106,15 @@ class PineconeAdapter(VectorStorePort):
 
         return [
             SearchResult(
-                id=match["id"],
-                score=match["score"],
+                id=match.id,
+                score=match.score,
                 payload={
                     k: v
-                    for k, v in (match.get("metadata") or {}).items()
+                    for k, v in (match.metadata or {}).items()
                     if k != "_collection"
                 },
             )
-            for match in response.get("matches", [])
+            for match in (response.matches or [])
         ]
 
     async def delete(self, collection: str, doc_id: str) -> None:

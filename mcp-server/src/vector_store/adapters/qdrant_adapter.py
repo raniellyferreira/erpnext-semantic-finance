@@ -5,20 +5,22 @@ Suporta tanto Qdrant self-hosted quanto Qdrant Cloud.
 """
 
 import uuid
+from datetime import date
 from typing import Any
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
+    DatetimeRange,
     Distance,
-    VectorParams,
-    PointStruct,
-    Filter,
     FieldCondition,
-    Range,
+    Filter,
     MatchValue,
+    PointStruct,
+    Range,
+    VectorParams,
 )
 
-from ..port import VectorStorePort, VectorDocument, SearchResult, SearchFilter
+from ..port import SearchFilter, SearchResult, VectorDocument, VectorStorePort
 
 
 class QdrantAdapter(VectorStorePort):
@@ -81,7 +83,6 @@ class QdrantAdapter(VectorStorePort):
 
     async def delete(self, collection: str, doc_id: str) -> None:
         """Remove documento do Qdrant pelo ID original."""
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
         await self._client.delete(
             collection_name=collection,
             points_selector=Filter(
@@ -110,10 +111,10 @@ def _build_qdrant_filter(filters: SearchFilter) -> Filter | None:
     if filters.date_gte or filters.date_lte:
         date_range: dict[str, Any] = {}
         if filters.date_gte:
-            date_range["gte"] = filters.date_gte
+            date_range["gte"] = date.fromisoformat(filters.date_gte)
         if filters.date_lte:
-            date_range["lte"] = filters.date_lte
-        conditions.append(FieldCondition(key="date", range=Range(**date_range)))
+            date_range["lte"] = date.fromisoformat(filters.date_lte)
+        conditions.append(FieldCondition(key="date", range=DatetimeRange(**date_range)))
 
     if filters.amount_gte or filters.amount_lte:
         amount_range: dict[str, Any] = {}
@@ -127,6 +128,8 @@ def _build_qdrant_filter(filters: SearchFilter) -> Filter | None:
         conditions.append(FieldCondition(key="supplier", match=MatchValue(value=filters.supplier)))
 
     if filters.cost_center:
-        conditions.append(FieldCondition(key="cost_center", match=MatchValue(value=filters.cost_center)))
+        conditions.append(
+            FieldCondition(key="cost_center", match=MatchValue(value=filters.cost_center))
+        )
 
     return Filter(must=conditions) if conditions else None

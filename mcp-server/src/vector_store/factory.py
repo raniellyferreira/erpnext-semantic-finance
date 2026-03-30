@@ -32,7 +32,6 @@ def create_vector_store() -> VectorStorePort:
             api_key=settings.pinecone_api_key,
             index_name=settings.pinecone_index_name,
             namespace=settings.pinecone_namespace,
-            environment=settings.pinecone_environment or None,
         )
 
     raise ValueError(
