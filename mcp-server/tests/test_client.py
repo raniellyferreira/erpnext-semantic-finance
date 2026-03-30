@@ -48,7 +48,7 @@ class TestGetDoc:
         }
 
         httpx_mock.add_response(
-            url=f"{BASE_URL}/api/resource/Sales Invoice/SINV-00001",
+            url=re.compile(rf"{re.escape(BASE_URL)}/api/resource/Sales%20Invoice/SINV-00001"),
             json={"data": expected_data},
         )
 
@@ -117,7 +117,7 @@ class TestCreateDoc:
         }
 
         httpx_mock.add_response(
-            url=f"{BASE_URL}/api/resource/Journal Entry",
+            url=re.compile(rf"{re.escape(BASE_URL)}/api/resource/Journal%20Entry"),
             json={"data": created_doc},
             status_code=200,
         )
@@ -159,7 +159,7 @@ class TestUpdateDoc:
         }
 
         httpx_mock.add_response(
-            url=f"{BASE_URL}/api/resource/Purchase Invoice/PINV-00001",
+            url=re.compile(rf"{re.escape(BASE_URL)}/api/resource/Purchase%20Invoice/PINV-00001"),
             json={"data": updated_doc},
         )
 
@@ -188,7 +188,7 @@ class TestErrorHandling:
     async def test_401_levanta_auth_error(self, httpx_mock: HTTPXMock) -> None:
         """HTTP 401 deve levantar ERPNextAuthError."""
         httpx_mock.add_response(
-            url=f"{BASE_URL}/api/resource/Sales Invoice/SINV-001",
+            url=re.compile(rf"{re.escape(BASE_URL)}/api/resource/Sales%20Invoice/SINV-001"),
             json={"message": "Not authenticated"},
             status_code=401,
         )
@@ -202,7 +202,7 @@ class TestErrorHandling:
     async def test_404_levanta_not_found_error(self, httpx_mock: HTTPXMock) -> None:
         """HTTP 404 deve levantar ERPNextNotFoundError."""
         httpx_mock.add_response(
-            url=f"{BASE_URL}/api/resource/Sales Invoice/SINV-999",
+            url=re.compile(rf"{re.escape(BASE_URL)}/api/resource/Sales%20Invoice/SINV-999"),
             json={"message": "Not found"},
             status_code=404,
         )
@@ -218,7 +218,7 @@ class TestErrorHandling:
     async def test_400_levanta_validation_error(self, httpx_mock: HTTPXMock) -> None:
         """HTTP 400 deve levantar ERPNextValidationError."""
         httpx_mock.add_response(
-            url=f"{BASE_URL}/api/resource/Journal Entry",
+            url=re.compile(rf"{re.escape(BASE_URL)}/api/resource/Journal%20Entry"),
             json={"message": "Missing mandatory fields"},
             status_code=400,
         )
@@ -234,7 +234,7 @@ class TestErrorHandling:
         # O decorator @retry tenta 3 vezes — precisamos registrar 3 respostas
         for _ in range(3):
             httpx_mock.add_response(
-                url=f"{BASE_URL}/api/resource/Payment Entry/PE-001",
+                url=re.compile(rf"{re.escape(BASE_URL)}/api/resource/Payment%20Entry/PE-001"),
                 json={"message": "Internal server error"},
                 status_code=500,
             )

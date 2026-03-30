@@ -14,7 +14,6 @@ import pytest
 from src.tools import search_tools
 from src.vector_store.port import SearchFilter, SearchResult
 
-
 # ─── Mock classes ────────────────────────────────────────────────────────────
 
 
@@ -319,3 +318,28 @@ class TestBuildSearchFilter:
         assert result.date_lte == "2024-12-31"
         assert result.amount_gte == 100.0
         assert result.amount_lte == 50000.0
+
+    def test_filtro_valor_zero_nao_eh_ignorado(self) -> None:
+        """Deve criar SearchFilter quando valor_minimo=0.0 (falsy mas válido)."""
+        result = search_tools._build_search_filter(
+            data_inicio=None,
+            data_fim=None,
+            valor_minimo=0.0,
+            valor_maximo=0.0,
+        )
+
+        assert result is not None
+        assert result.amount_gte == 0.0
+        assert result.amount_lte == 0.0
+
+    def test_filtro_string_vazia_eh_tratada(self) -> None:
+        """Deve criar SearchFilter quando data é string vazia (falsy mas presente)."""
+        result = search_tools._build_search_filter(
+            data_inicio="",
+            data_fim=None,
+            valor_minimo=None,
+            valor_maximo=None,
+        )
+
+        assert result is not None
+        assert result.date_gte == ""

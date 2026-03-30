@@ -11,6 +11,7 @@ via ``EmbeddingService``, sem acoplamento a implementações concretas.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import mcp.types as types
@@ -27,25 +28,47 @@ TOOL_NAMES: list[str] = ["busca_semantica"]
 _DEFAULT_COLLECTIONS = ["despesas", "notas_fiscais", "lancamentos_contabeis"]
 
 # Singletons de módulo — evita recriar conexões HTTP e clientes a cada chamada.
-# Inicializados de forma lazy na primeira execução.
+# Inicializados de forma lazy na primeira execução, protegidos por lock.
 _embedding_service: EmbeddingService | None = None
 _vector_store: VectorStorePort | None = None
+_init_lock = asyncio.Lock()
 
 
-def _get_embedding_service() -> EmbeddingService:
-    """Retorna a instância singleton do EmbeddingService (lazy init)."""
+async def _get_embedding_service() -> EmbeddingService:
+    """Retorna a instância singleton do EmbeddingService (lazy init com lock)."""
     global _embedding_service  # noqa: PLW0603
     if _embedding_service is None:
-        _embedding_service = EmbeddingService()
+        async with _init_lock:
+            if _embedding_service is None:
+                _embedding_service = EmbeddingService()
     return _embedding_service
 
 
-def _get_vector_store() -> VectorStorePort:
-    """Retorna a instância singleton do VectorStore (lazy init)."""
+async def _get_vector_store() -> VectorStorePort:
+    """Retorna a instância singleton do VectorStore (lazy init com lock)."""
     global _vector_store  # noqa: PLW0603
     if _vector_store is None:
-        _vector_store = create_vector_store()
+        async with _init_lock:
+            if _vector_store is None:
+                _vector_store = create_vector_store()
     return _vector_store
+
+
+async def close() -> None:
+    """Fecha os recursos dos singletons (embedding service e vector store).
+
+    Deve ser chamado no shutdown do servidor para liberar conexões HTTP
+    e sockets abertos, evitando resource warnings.
+    """
+    global _embedding_service, _vector_store  # noqa: PLW0603
+
+    if _embedding_service is not None:
+        await _embedding_service.close()
+        _embedding_service = None
+        logger.info("embedding_service_encerrado")
+
+    _vector_store = None
+    logger.info("search_tools_recursos_liberados")
 
 
 def get_tools() -> list[types.Tool]:
@@ -151,7 +174,7 @@ async def _busca_semantica(arguments: dict) -> str:
     )
 
     # Gera embedding da query
-    embedding_service = _get_embedding_service()
+    embedding_service = await _get_embedding_service()
     query_vector = await embedding_service.embed(query)
 
     # Monta filtros híbridos (vetorial + metadados)
@@ -163,7 +186,7 @@ async def _busca_semantica(arguments: dict) -> str:
     )
 
     # Busca em cada coleção via porta abstrata
-    vector_store = _get_vector_store()
+    vector_store = await _get_vector_store()
     resultados: list[dict] = []
 
     for colecao in colecoes:
@@ -206,7 +229,12 @@ def _build_search_filter(
 
     Retorna ``None`` se nenhum filtro foi fornecido.
     """
-    has_filters = any([data_inicio, data_fim, valor_minimo, valor_maximo])
+    has_filters = (
+        data_inicio is not None
+        or data_fim is not None
+        or valor_minimo is not None
+        or valor_maximo is not None
+    )
 
     if not has_filters:
         return None

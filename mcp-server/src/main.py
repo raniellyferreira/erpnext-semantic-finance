@@ -44,19 +44,22 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
 async def main() -> None:
     """Inicializa e executa o MCP Server via stdio."""
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="erpnext-semantic-finance",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=None,
-                    experimental_capabilities={},
+    try:
+        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                InitializationOptions(
+                    server_name="erpnext-semantic-finance",
+                    server_version="0.1.0",
+                    capabilities=server.get_capabilities(
+                        notification_options=None,
+                        experimental_capabilities={},
+                    ),
                 ),
-            ),
-        )
+            )
+    finally:
+        await search_tools.close()
 
 
 if __name__ == "__main__":
