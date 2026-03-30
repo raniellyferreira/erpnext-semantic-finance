@@ -137,20 +137,17 @@ services:
           memory: 4g
         reservations:
           memory: 2g
+          # Descomente abaixo para usar GPU NVIDIA (ajuste memory conforme GPU)
+          # devices:
+          #   - driver: nvidia
+          #     count: 1
+          #     capabilities: [gpu]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsSL http://localhost:11434/ || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 30s
-    # Remova o comentário abaixo se tiver GPU NVIDIA
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
     networks:
       - erpnext-net
 
