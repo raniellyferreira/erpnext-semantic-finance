@@ -1,13 +1,13 @@
 """Entry point do MCP Server - ERPNext Semantic Finance."""
 
 import asyncio
+
 import mcp.server.stdio
+import mcp.types as types
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
-import mcp.types as types
 
-from .config import settings
-from .tools import search_tools, financial_tools, fiscal_tools, report_tools
+from .tools import financial_tools, fiscal_tools, report_tools, search_tools
 
 # Inicializa o servidor MCP
 server = Server("erpnext-semantic-finance")
@@ -44,19 +44,22 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
 async def main() -> None:
     """Inicializa e executa o MCP Server via stdio."""
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="erpnext-semantic-finance",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=None,
-                    experimental_capabilities={},
+    try:
+        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                InitializationOptions(
+                    server_name="erpnext-semantic-finance",
+                    server_version="0.1.0",
+                    capabilities=server.get_capabilities(
+                        notification_options=None,
+                        experimental_capabilities={},
+                    ),
                 ),
-            ),
-        )
+            )
+    finally:
+        await search_tools.close()
 
 
 if __name__ == "__main__":
